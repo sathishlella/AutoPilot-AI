@@ -412,54 +412,100 @@
         { phrases: ['quieter', 'volume down'], action: 'volumeDown' },
         { phrases: ['fullscreen', 'full screen'], action: 'fullscreen' },
       ];
+      this._listenersAdded = false;
     }
     isSupported() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
-    // Called directly by a real in-page user gesture (the "Enable voice" pill button).
-    // Web Speech API + microphone permission require this to be triggered by a click
-    // event that originates inside the page itself — not a chrome.tabs.sendMessage.
+    injectPageScript(code) {
+      try {
+        const script = document.createElement('script');
+        const blob = new Blob([code], { type: 'text/javascript' });
+        const blobUrl = URL.createObjectURL(blob);
+        if (window.trustedTypes && window.trustedTypes.createPolicy) {
+          const policy = window.trustedTypes.getPolicy?.('autopilot') || window.trustedTypes.createPolicy('autopilot', {
+            createScriptURL: (url) => url,
+          });
+          script.src = policy.createScriptURL(blobUrl);
+        } else {
+          script.src = blobUrl;
+        }
+        script.onload = () => { URL.revokeObjectURL(blobUrl); try { script.remove(); } catch (e) {} };
+        (document.head || document.documentElement).appendChild(script);
+        return true;
+      } catch (e) { return false; }
+    }
     startFromUserGesture() {
       if (this.listening || !this.isSupported()) return false;
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      this.recognition = new SR();
-      this.recognition.continuous = true;
-      this.recognition.interimResults = false;
-      this.recognition.lang = 'en-US';
-      this.recognition.onresult = (event) => {
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript.trim().toLowerCase();
-          this.processCommand(transcript);
-        }
-      };
-      this.recognition.onerror = (e) => {
-        if (e.error === 'not-allowed' || e.error === 'audio-capture') {
+      if (!this._listenersAdded) {
+        window.addEventListener('__autopilotVoiceResult__', (e) => {
+          this.processCommand(e.detail);
+        });
+        window.addEventListener('__autopilotVoiceError__', (e) => {
           this.listening = false;
-          if (window.__autopilotInstance) window.__autopilotInstance.onVoiceError(e.error);
-          return;
-        }
-        if (this.listening) setTimeout(() => { try { this.recognition.start(); } catch (err) {} }, 800);
-      };
-      this.recognition.onend = () => {
-        if (this.listening) setTimeout(() => { try { this.recognition.start(); } catch (err) {} }, 200);
-      };
-      try {
-        this.recognition.start();
-        this.listening = true;
-        return true;
-      } catch (err) {
-        this.listening = false;
-        return false;
+          if (window.__autopilotInstance) window.__autopilotInstance.onVoiceError(e.detail);
+        });
+        this._listenersAdded = true;
       }
+      const ok = this.injectPageScript(`
+        (function() {
+          if (window.__autopilotRecognition) {
+            try { window.__autopilotRecognition.stop(); } catch(e) {}
+          }
+          const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+          const rec = new SR();
+          rec.continuous = true;
+          rec.interimResults = false;
+          rec.lang = 'en-US';
+          rec.onresult = function(event) {
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              const transcript = event.results[i][0].transcript.trim().toLowerCase();
+              window.dispatchEvent(new CustomEvent('__autopilotVoiceResult__', { detail: transcript }));
+            }
+          };
+          rec.onerror = function(e) {
+            if (e.error === 'not-allowed' || e.error === 'audio-capture') {
+              window.dispatchEvent(new CustomEvent('__autopilotVoiceError__', { detail: e.error }));
+              return;
+            }
+            if (window.__autopilotVoiceListening) {
+              setTimeout(function() { try { rec.start(); } catch(err) {} }, 800);
+            }
+          };
+          rec.onend = function() {
+            if (window.__autopilotVoiceListening) {
+              setTimeout(function() { try { rec.start(); } catch(err) {} }, 200);
+            }
+          };
+          window.__autopilotRecognition = rec;
+          window.__autopilotVoiceListening = true;
+          rec.start();
+        })();
+      `);
+      if (ok) this.listening = true;
+      return ok;
     }
-    // Legacy name used by AutoPilot.enableVoice(); now routes to pill button flow
     start() { return this.startFromUserGesture(); }
     stop() {
       this.listening = false;
       if (this.recognition) { try { this.recognition.stop(); } catch (e) {} this.recognition = null; }
+      this.injectPageScript(`
+        (function() {
+          window.__autopilotVoiceListening = false;
+          if (window.__autopilotRecognition) {
+            try { window.__autopilotRecognition.stop(); } catch(e) {}
+            window.__autopilotRecognition = null;
+          }
+        })();
+      `);
     }
     processCommand(transcript) {
+      console.log('[AutoPilot AI] voice heard:', transcript);
       for (const cmd of this.commands) {
         for (const phrase of cmd.phrases) {
-          if (transcript.includes(phrase)) { this.handleAction(cmd.action); return; }
+          if (transcript.includes(phrase)) {
+            console.log('[AutoPilot AI] voice command matched:', cmd.action);
+            this.handleAction(cmd.action);
+            return;
+          }
         }
       }
     }
