@@ -543,22 +543,27 @@
       this.ytAdInterval = setInterval(() => {
         const player = document.querySelector('#movie_player');
         const isAdShowing = player && player.classList.contains('ad-showing');
-        if (!isAdShowing) return;
-        const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button');
-        if (skipBtn) return; // Let the normal click handler deal with skippable ads
+        if (!isAdShowing) {
+          this._lastAdSkipAt = 0;
+          return;
+        }
+        const now = Date.now();
+        if (this._lastAdSkipAt && (now - this._lastAdSkipAt) < 3000) return;
         const video = document.querySelector('video');
         if (video && !isNaN(video.duration) && isFinite(video.duration) && video.duration > 0) {
           try {
             video.currentTime = video.duration - 0.1;
+            this._lastAdSkipAt = now;
             this.executor.showToast({ label: 'YouTube: Skipped ad', category: 'ad-skip' });
-            this.handleAction({ ruleId: 'yt-skip-ad', category: 'ad-skip', label: 'YouTube: Skipped unskippable ad', host: this.scout.host, url: window.location.href, clickedAt: Date.now(), timeSavedSec: 5 });
+            this.handleAction({ ruleId: 'yt-skip-ad', category: 'ad-skip', label: 'YouTube: Skipped ad', host: this.scout.host, url: window.location.href, clickedAt: now, timeSavedSec: 5 });
           } catch (e) {}
         }
-      }, 800);
+      }, 500);
     }
     stopYouTubeAdSkipper() {
       if (this.ytAdInterval) clearInterval(this.ytAdInterval);
       this.ytAdInterval = null;
+      this._lastAdSkipAt = 0;
     }
     handleCandidates(candidates) {
       const decisions = this.analyst.evaluate(candidates);
