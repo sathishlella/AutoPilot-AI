@@ -105,6 +105,19 @@ async function refresh() {
   const stats = await sendToBackground({ type: 'GET_DERIVED_STATS' });
   // Pull live status from content script (may be null on chrome:// pages)
   contentStatus = activeTab ? await sendToTab(activeTab.id, { type: 'GET_STATUS' }) : null;
+  // Auto-inject content script if missing and tab is a real web page
+  if (activeTab && !contentStatus && activeTab.url && !activeTab.url.startsWith('chrome://') && !activeTab.url.startsWith('edge://') && !activeTab.url.startsWith('about:')) {
+    try {
+      await new Promise(resolve => {
+        chrome.scripting.executeScript({ target: { tabId: activeTab.id }, files: ['content.js'] }, () => {
+          resolve();
+        });
+      });
+      // Give it a moment to boot, then retry
+      await new Promise(r => setTimeout(r, 300));
+      contentStatus = await sendToTab(activeTab.id, { type: 'GET_STATUS' });
+    } catch (e) {}
+  }
 
   // Hero
   document.getElementById('totalTime').textContent = humanizeSeconds(stats?.totalSecondsSaved || 0);

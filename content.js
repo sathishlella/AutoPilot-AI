@@ -291,9 +291,8 @@
       try {
         if (decision.host && decision.host.includes('youtube.com') && decision.category === 'ad-skip') {
           this.pageScriptClick(decision.selectors || []);
-        } else {
-          this.smartClick(el);
         }
+        this.smartClick(el);
         const action = {
           ruleId: decision.ruleId, category: decision.category, label: decision.label,
           host: decision.host, url: decision.url,
@@ -309,41 +308,19 @@
     pageScriptClick(selectors) {
       try {
         const script = document.createElement('script');
+        const ytSelectors = ['.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-skip-ad-button', 'button[class*="ytp-ad-skip"]', 'button[data-testid="skip-ad-button"]', '.ytp-ad-skip-button-slot'];
         const code = `
           (function() {
-            const querySelectorAllDeep = function(selector) {
-              const results = [];
+            const selectors = ${JSON.stringify(ytSelectors)};
+            for (const sel of selectors) {
               try {
-                const nodes = document.querySelectorAll(selector);
-                for (const n of nodes) results.push(n);
-              } catch (e) {}
-              const walk = function(root) {
-                if (!root) return;
-                const treeWalker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-                let node = treeWalker.currentNode;
-                while (node) {
-                  if (node.shadowRoot) {
-                    try {
-                      const nodes = node.shadowRoot.querySelectorAll(selector);
-                      for (const n of nodes) results.push(n);
-                    } catch (e) {}
-                    walk(node.shadowRoot);
-                  }
-                  node = treeWalker.nextNode();
-                }
-              };
-              walk(document.documentElement);
-              return results;
-            };
-            for (const sel of ${JSON.stringify(selectors)}) {
-              const matches = querySelectorAllDeep(sel);
-              for (const el of matches) {
-                const rect = el.getBoundingClientRect();
-                if (rect.width > 0 && rect.height > 0 && !el.disabled && el.getAttribute('aria-disabled') !== 'true') {
+                const el = document.querySelector(sel);
+                if (el && el.offsetParent !== null && !el.disabled && el.getAttribute('aria-disabled') !== 'true') {
                   el.click();
+                  window.__autopilotLastClick = sel;
                   return;
                 }
-              }
+              } catch (e) {}
             }
           })();
         `;

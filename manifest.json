@@ -3,7 +3,7 @@
   "name": "AutoPilot AI — Auto-skip ads, popups, intros",
   "version": "1.0.0",
   "description": "Autonomous browser agent that auto-clicks Skip Ad, Skip Intro, cookie banners, popups, and more across YouTube, Netflix, Prime Video, and 50+ sites. 100% local. No data sent anywhere.",
-  "permissions": ["storage", "tabs", "activeTab"],
+  "permissions": ["storage", "tabs", "activeTab", "scripting"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
