@@ -497,13 +497,18 @@
       this.voiceEnabled = false;
     }
     async init() {
-      // Load state from chrome.storage
-      const stored = await this.loadState();
-      this.analyst = new Analyst(stored.analystState || {});
-      this.executor = new Executor((action) => this.handleAction(action));
-      this.voiceEnabled = !!stored.voiceEnabled;
-      if (this.voiceEnabled) this.showVoicePill();
-      this.start();
+      try {
+        console.log('[AutoPilot AI] init start');
+        const stored = await this.loadState();
+        this.analyst = new Analyst(stored.analystState || {});
+        this.executor = new Executor((action) => this.handleAction(action));
+        this.voiceEnabled = !!stored.voiceEnabled;
+        if (this.voiceEnabled) this.showVoicePill();
+        this.start();
+        console.log('[AutoPilot AI] init complete — host:', this.scout.host, 'rules:', this.scout.matchedRules.length);
+      } catch (err) {
+        console.error('[AutoPilot AI] init failed:', err);
+      }
       // Listen for messages from popup
       if (chrome?.runtime?.onMessage) {
         chrome.runtime.onMessage.addListener((msg, sender, send) => {
@@ -540,10 +545,12 @@
     }
     startYouTubeAdSkipper() {
       if (this.ytAdInterval) return;
+      console.log('[AutoPilot AI] YouTube ad skipper armed');
       this.ytAdInterval = setInterval(() => {
         const player = document.querySelector('#movie_player');
-        const isAdShowing = player && player.classList.contains('ad-showing');
-        if (!isAdShowing) {
+        const isAdShowing = player && (player.classList.contains('ad-showing') || !!player.querySelector('.ad-showing'));
+        const hasAdModule = !!document.querySelector('.ytp-ad-module, .ytp-ad-player-overlay');
+        if (!isAdShowing && !hasAdModule) {
           this._lastAdSkipAt = 0;
           return;
         }
@@ -552,11 +559,20 @@
         const video = document.querySelector('video');
         if (video && !isNaN(video.duration) && isFinite(video.duration) && video.duration > 0) {
           try {
+            const before = video.currentTime;
             video.currentTime = video.duration - 0.1;
+            console.log('[AutoPilot AI] ad skipper: seek attempted', before, '->', video.currentTime);
+            // Fallback: if seek didn't move (YouTube blocked it), speed up the ad
+            if (Math.abs(video.currentTime - before) < 0.5) {
+              video.playbackRate = 16;
+              console.log('[AutoPilot AI] ad skipper: seek blocked, using 16x speed');
+            }
             this._lastAdSkipAt = now;
             this.executor.showToast({ label: 'YouTube: Skipped ad', category: 'ad-skip' });
             this.handleAction({ ruleId: 'yt-skip-ad', category: 'ad-skip', label: 'YouTube: Skipped ad', host: this.scout.host, url: window.location.href, clickedAt: now, timeSavedSec: 5 });
-          } catch (e) {}
+          } catch (err) {
+            console.error('[AutoPilot AI] ad skipper error:', err);
+          }
         }
       }, 500);
     }
