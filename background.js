@@ -110,6 +110,33 @@ async function resetStats() {
   chrome.action.setBadgeText({ text: '' });
 }
 
+// Offscreen document for voice (MV3)
+let creatingOffscreen = false;
+async function setupOffscreenDocument() {
+  if (creatingOffscreen) return;
+  const existing = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL('offscreen.html')]
+  });
+  if (existing && existing.length > 0) return;
+  creatingOffscreen = true;
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: ['USER_MEDIA'],
+    justification: 'Speech recognition for voice commands'
+  });
+  creatingOffscreen = false;
+}
+async function closeOffscreenDocument() {
+  const existing = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL('offscreen.html')]
+  });
+  if (existing && existing.length > 0) {
+    await chrome.offscreen.closeDocument();
+  }
+}
+
 // Message router
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
@@ -130,6 +157,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           await resetStats();
           sendResponse({ ok: true });
           break;
+        case 'START_VOICE':
+          await setupOffscreenDocument();
+          chrome.runtime.sendMessage({ type: 'START_VOICE_OFFSCREEN' });
+          sendResponse({ ok: true });
+          break;
+        case 'STOP_VOICE':
+          chrome.runtime.sendMessage({ type: 'STOP_VOICE_OFFSCREEN' });
+          setTimeout(closeOffscreenDocument, 500);
+          sendResponse({ ok: true });
+          break;
         default:
           sendResponse({ ok: false, error: 'Unknown' });
       }
@@ -138,6 +175,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
   })();
   return true; // async response
+});
+
+// Forward voice results from offscreen to the active tab content script
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'VOICE_RESULT') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.id) {
+        chrome.tabs.sendMessage(tabs[0].id, { type: 'VOICE_RESULT', transcript: msg.transcript }).catch(() => {});
+      }
+    });
+    return false;
+  }
+  if (msg.type === 'VOICE_ERROR') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.id) {
+        chrome.tabs.sendMessage(tabs[0].id, { type: 'VOICE_ERROR', error: msg.error }).catch(() => {});
+      }
+    });
+    return false;
+  }
 });
 
 // On install

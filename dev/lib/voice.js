@@ -1,11 +1,9 @@
 // AutoPilot AI — Voice Command Module
-// Listens for voice commands like "skip", "pause", "next", "mute"
-// Uses the Web Speech API (works offline in Chrome, no API key)
+// Uses a Chrome offscreen document for speech recognition (MV3 requirement)
 
 export class VoiceController {
   constructor(handlers) {
     this.handlers = handlers || {};
-    this.recognition = null;
     this.listening = false;
     this.commands = [
       { phrases: ['skip', 'skip this', 'skip ad', 'skip intro'], action: 'skip' },
@@ -26,68 +24,19 @@ export class VoiceController {
   }
 
   start() {
-    if (this.listening) return;
-    if (!this.isSupported()) {
-      console.warn('[AutoPilot] Web Speech API not supported');
-      return false;
+    if (this.listening) return true;
+    if (!this.isSupported()) return false;
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ type: 'START_VOICE' }).catch(() => {});
     }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    this.recognition = new SR();
-    this.recognition.continuous = true;
-    this.recognition.interimResults = false;
-    this.recognition.lang = 'en-US';
-
-    this.recognition.onstart = () => {
-      console.log('[AutoPilot AI] voice recognition started');
-      this.listening = true;
-    };
-
-    this.recognition.onresult = (event) => {
-      console.log('[AutoPilot AI] voice result event:', event.results.length, 'results');
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript.trim().toLowerCase();
-        console.log('[AutoPilot AI] voice transcript:', transcript);
-        this.processCommand(transcript);
-      }
-    };
-
-    this.recognition.onerror = (e) => {
-      console.error('[AutoPilot AI] voice error:', e.error);
-      // Auto-restart on temporary errors (network, no-speech)
-      if (this.listening && e.error !== 'not-allowed' && e.error !== 'audio-capture') {
-        setTimeout(() => {
-          try { this.recognition.start(); } catch (err) {}
-        }, 800);
-      }
-      if ((e.error === 'not-allowed' || e.error === 'audio-capture') && this.handlers.onError) {
-        this.handlers.onError(e.error);
-      }
-    };
-
-    this.recognition.onend = () => {
-      console.log('[AutoPilot AI] voice recognition ended, listening=', this.listening);
-      // Auto-restart if we're supposed to be listening
-      if (this.listening) {
-        setTimeout(() => {
-          try { this.recognition.start(); } catch (err) {}
-        }, 200);
-      }
-    };
-
-    try {
-      this.recognition.start();
-      return true;
-    } catch (err) {
-      console.warn('[AutoPilot] Could not start voice recognition:', err);
-      return false;
-    }
+    this.listening = true;
+    return true;
   }
 
   stop() {
     this.listening = false;
-    if (this.recognition) {
-      try { this.recognition.stop(); } catch (e) {}
-      this.recognition = null;
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ type: 'STOP_VOICE' }).catch(() => {});
     }
   }
 
@@ -97,7 +46,7 @@ export class VoiceController {
       for (const phrase of cmd.phrases) {
         if (transcript.includes(phrase)) {
           console.log('[AutoPilot AI] voice command matched:', cmd.action);
-          this.handleAction(cmd.action, transcript);
+          this.handleAction(cmd.action);
           return;
         }
       }
@@ -105,17 +54,12 @@ export class VoiceController {
     console.log('[AutoPilot AI] no voice command matched');
   }
 
-  handleAction(action, transcript) {
-    if (this.handlers.onCommand) {
-      this.handlers.onCommand(action, transcript);
-    }
-    // Built-in default media controls
+  handleAction(action) {
     const video = document.querySelector('video');
     console.log('[AutoPilot AI] voice handleAction:', action, 'video found:', !!video);
     if (!video) return;
     switch (action) {
       case 'skip':
-        // Try to find a skip button first; fall back to seeking forward
         const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, button[data-uia="player-skip-intro"], .atvwebplayersdk-skipelement-button');
         if (skipBtn) skipBtn.click();
         else video.currentTime += 10;

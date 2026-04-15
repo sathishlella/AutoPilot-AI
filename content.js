@@ -366,7 +366,7 @@
   // ============================================================
   class VoiceController {
     constructor() {
-      this.recognition = null; this.listening = false;
+      this.listening = false;
       this.commands = [
         { phrases: ['skip', 'skip this', 'skip ad', 'skip intro'], action: 'skip' },
         { phrases: ['pause', 'stop'], action: 'pause' },
@@ -380,55 +380,23 @@
         { phrases: ['fullscreen', 'full screen'], action: 'fullscreen' },
       ];
     }
-    isSupported() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
-    startFromUserGesture() {
-      if (this.listening || !this.isSupported()) {
-        console.log('[AutoPilot AI] voice not started — listening=', this.listening, 'supported=', this.isSupported());
-        return false;
-      }
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      this.recognition = new SR();
-      this.recognition.continuous = true;
-      this.recognition.interimResults = false;
-      this.recognition.lang = 'en-US';
-      this.recognition.onstart = () => {
-        console.log('[AutoPilot AI] voice recognition started');
-        this.listening = true;
-      };
-      this.recognition.onresult = (event) => {
-        console.log('[AutoPilot AI] voice result event:', event.results.length, 'results');
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript.trim().toLowerCase();
-          console.log('[AutoPilot AI] voice transcript:', transcript);
-          this.processCommand(transcript);
-        }
-      };
-      this.recognition.onerror = (e) => {
-        console.error('[AutoPilot AI] voice error:', e.error);
-        if (e.error === 'not-allowed' || e.error === 'audio-capture') {
-          this.listening = false;
-          if (window.__autopilotInstance) window.__autopilotInstance.onVoiceError(e.error);
-          return;
-        }
-        if (this.listening) setTimeout(() => { try { this.recognition.start(); } catch (err) {} }, 800);
-      };
-      this.recognition.onend = () => {
-        console.log('[AutoPilot AI] voice recognition ended, listening=', this.listening);
-        if (this.listening) setTimeout(() => { try { this.recognition.start(); } catch (err) {} }, 200);
-      };
-      try {
-        this.recognition.start();
-        return true;
-      } catch (err) {
-        console.error('[AutoPilot AI] voice start threw:', err);
-        this.listening = false;
-        return false;
-      }
+    isSupported() {
+      return typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
     }
-    start() { return this.startFromUserGesture(); }
+    start() {
+      if (this.listening) return true;
+      if (!this.isSupported()) return false;
+      if (chrome?.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({ type: 'START_VOICE' }).catch(() => {});
+      }
+      this.listening = true;
+      return true;
+    }
     stop() {
       this.listening = false;
-      if (this.recognition) { try { this.recognition.stop(); } catch (e) {} this.recognition = null; }
+      if (chrome?.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({ type: 'STOP_VOICE' }).catch(() => {});
+      }
     }
     processCommand(transcript) {
       console.log('[AutoPilot AI] processing voice command:', transcript);
@@ -540,7 +508,9 @@
         const now = Date.now();
         if (this._lastAdSkipAt && (now - this._lastAdSkipAt) < 3000) return;
         const video = document.querySelector('video');
-        if (video && !isNaN(video.duration) && isFinite(video.duration) && video.duration > 0 && video.currentTime < video.duration - 2) {
+        // Only skip if this looks like an ad (duration < 3 min) and we're not already near the end
+        const looksLikeAd = video && !isNaN(video.duration) && isFinite(video.duration) && video.duration > 0 && video.duration < 180;
+        if (looksLikeAd && video.currentTime < video.duration - 2) {
           try {
             const before = video.currentTime;
             video.currentTime = video.duration - 0.1;
@@ -622,7 +592,7 @@
         ev.stopPropagation();
         ev.preventDefault();
         // THIS is a real user gesture inside the page — SpeechRecognition.start() will work
-        const ok = this.voice.startFromUserGesture();
+        const ok = this.voice.start();
         if (ok) {
           pill.innerHTML = `<div style="width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 10px #22c55e;animation:autopilot-pulse 1.2s infinite;"></div><span>Voice active — say "skip", "pause", "next"</span>`;
           setTimeout(() => this.hideVoicePill(), 4000);
@@ -666,6 +636,13 @@
             voiceSupported: this.voice.isSupported(),
             analystState: this.analyst?.state,
           });
+          break;
+        case 'VOICE_RESULT':
+          this.voice.processCommand(msg.transcript);
+          break;
+        case 'VOICE_ERROR':
+          this.voice.listening = false;
+          this.onVoiceError(msg.error);
           break;
         case 'TOGGLE_RUN':
           if (this.started) this.stop(); else this.start();
