@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AutoPilot AI — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #fff;
+    color: #000;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 48px 32px; }
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 48px; padding-bottom: 24px; border-bottom: 1px solid #000; }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .logo { width: 44px; height: 44px; border: 1px solid #000; border-radius: 10px; display: grid; place-items: center; font-weight: 800; font-size: 22px; }
+  .brand-text h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand-text p { font-size: 12px; color: #666; margin-top: 2px; }
+  .header-meta { font-size: 12px; color: #666; }
+
+  .hero { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0; border: 1px solid #000; margin-bottom: 32px; }
+  .hero-cell { padding: 24px; border-right: 1px solid #000; }
+  .hero-cell:last-child { border-right: none; }
+  .hero-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #666; margin-bottom: 8px; font-weight: 600; }
+  .hero-value { font-size: 42px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+  .hero-sub { font-size: 11px; color: #666; margin-top: 6px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; }
+  .card { border: 1px solid #000; padding: 20px 24px; }
+  .card-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; color: #666; margin-bottom: 16px; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; font-size: 13px; }
+  .row + .row { border-top: 1px dashed #ddd; }
+  .row-label { font-weight: 500; }
+  .row-value { color: #666; }
+  .row-bar { flex: 1; height: 6px; background: #eee; margin: 0 12px; position: relative; }
+  .row-bar-fill { height: 100%; background: #000; }
+
+  .empty { text-align: center; padding: 32px 0; color: #999; font-size: 12px; }
+
+  .footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid #000; font-size: 11px; color: #666; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="brand">
+        <div class="logo">A</div>
+        <div class="brand-text">
+          <h1>AutoPilot AI Dashboard</h1>
+          <p>Auto-clicking the annoying buttons so you don't have to · 4-agent swarm · 100% local</p>
+        </div>
+      </div>
+      <div class="header-meta">Day 10 / 100 — by Sathish Lella</div>
+    </div>
+
+    <div class="hero">
+      <div class="hero-cell">
+        <div class="hero-label">Total time saved</div>
+        <div class="hero-value" id="totalTime">0s</div>
+        <div class="hero-sub" id="totalSub">Visit YouTube, Netflix, or any site</div>
+      </div>
+      <div class="hero-cell">
+        <div class="hero-label">Auto-clicks</div>
+        <div class="hero-value" id="totalClicks">0</div>
+        <div class="hero-sub">across all sites</div>
+      </div>
+      <div class="hero-cell">
+        <div class="hero-label">Avg / day</div>
+        <div class="hero-value" id="avgPerDay">0s</div>
+        <div class="hero-sub" id="installedDays">since install</div>
+      </div>
+      <div class="hero-cell">
+        <div class="hero-label">Undo rate</div>
+        <div class="hero-value" id="undoRate">0%</div>
+        <div class="hero-sub">accuracy proxy</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">By Category</div>
+        <div id="categoryRows"><div class="empty">No data yet</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">By Site</div>
+        <div id="siteRows"><div class="empty">No data yet</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Recent Activity</div>
+      <div id="recentRows"><div class="empty">No actions yet</div></div>
+    </div>
+
+    <div class="footer">
+      AutoPilot AI · 100 Days, 100 AI Agents Challenge · Day 10 of 100<br/>
+      Zero data leaves your machine · No API keys · Pure rule-based automation
+    </div>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>
