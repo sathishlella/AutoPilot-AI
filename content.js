@@ -239,7 +239,10 @@
   // ============================================================
   class Analyst {
     constructor(state) {
-      this.state = state || { categories: {}, sitePauses: {}, bannedRules: {}, recentClicks: {}, globalPause: false };
+      this.state = {
+        categories: {}, sitePauses: {}, bannedRules: {}, recentClicks: {}, globalPause: false,
+        ...state
+      };
       for (const [cat, info] of Object.entries(CATEGORY_INFO)) {
         if (this.state.categories[cat] === undefined) this.state.categories[cat] = info.defaultEnabled;
       }

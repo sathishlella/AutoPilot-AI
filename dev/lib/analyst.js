@@ -15,12 +15,13 @@ export class Analyst {
     //   recentClicks: { 'rule-id': timestamp },
     //   globalPause: false
     // }
-    this.state = state || {
+    this.state = {
       categories: {},
       sitePauses: {},
       bannedRules: {},
       recentClicks: {},
       globalPause: false,
+      ...state,
     };
     // Initialize default category prefs
     for (const [cat, info] of Object.entries(CATEGORY_INFO)) {
