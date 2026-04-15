@@ -292,9 +292,6 @@
       const el = decision.element;
       if (!el || !el.isConnected) return { ok: false };
       try {
-        if (decision.host && decision.host.includes('youtube.com') && decision.category === 'ad-skip') {
-          this.pageScriptClick(decision.selectors || []);
-        }
         this.smartClick(el);
         const action = {
           ruleId: decision.ruleId, category: decision.category, label: decision.label,
@@ -309,37 +306,7 @@
       } catch (e) { return { ok: false }; }
     }
     pageScriptClick(selectors) {
-      try {
-        const script = document.createElement('script');
-        const ytSelectors = ['.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-skip-ad-button', 'button[class*="ytp-ad-skip"]', 'button[data-testid="skip-ad-button"]', '.ytp-ad-skip-button-slot'];
-        const code = `
-          (function() {
-            const selectors = ${JSON.stringify(ytSelectors)};
-            for (const sel of selectors) {
-              try {
-                const el = document.querySelector(sel);
-                if (el && el.offsetParent !== null && !el.disabled && el.getAttribute('aria-disabled') !== 'true') {
-                  el.click();
-                  window.__autopilotLastClick = sel;
-                  return;
-                }
-              } catch (e) {}
-            }
-          })();
-        `;
-        const blob = new Blob([code], { type: 'text/javascript' });
-        const blobUrl = URL.createObjectURL(blob);
-        if (window.trustedTypes && window.trustedTypes.createPolicy) {
-          const policy = window.trustedTypes.getPolicy?.('autopilot') || window.trustedTypes.createPolicy('autopilot', {
-            createScriptURL: (url) => url,
-          });
-          script.src = policy.createScriptURL(blobUrl);
-        } else {
-          script.src = blobUrl;
-        }
-        script.onload = () => { URL.revokeObjectURL(blobUrl); try { script.remove(); } catch (e) {} };
-        (document.head || document.documentElement).appendChild(script);
-      } catch (e) {}
+      // Removed: blob URL script injection is blocked by CSP on YouTube
     }
     smartClick(el) {
       // Try full synthetic pointer + mouse event chain FIRST (YouTube/Netflix ad buttons
@@ -412,93 +379,59 @@
         { phrases: ['quieter', 'volume down'], action: 'volumeDown' },
         { phrases: ['fullscreen', 'full screen'], action: 'fullscreen' },
       ];
-      this._listenersAdded = false;
     }
     isSupported() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
-    injectPageScript(code) {
-      try {
-        const script = document.createElement('script');
-        const blob = new Blob([code], { type: 'text/javascript' });
-        const blobUrl = URL.createObjectURL(blob);
-        if (window.trustedTypes && window.trustedTypes.createPolicy) {
-          const policy = window.trustedTypes.getPolicy?.('autopilot') || window.trustedTypes.createPolicy('autopilot', {
-            createScriptURL: (url) => url,
-          });
-          script.src = policy.createScriptURL(blobUrl);
-        } else {
-          script.src = blobUrl;
-        }
-        script.onload = () => { URL.revokeObjectURL(blobUrl); try { script.remove(); } catch (e) {} };
-        (document.head || document.documentElement).appendChild(script);
-        return true;
-      } catch (e) { return false; }
-    }
     startFromUserGesture() {
-      if (this.listening || !this.isSupported()) return false;
-      if (!this._listenersAdded) {
-        window.addEventListener('__autopilotVoiceResult__', (e) => {
-          this.processCommand(e.detail);
-        });
-        window.addEventListener('__autopilotVoiceError__', (e) => {
-          this.listening = false;
-          if (window.__autopilotInstance) window.__autopilotInstance.onVoiceError(e.detail);
-        });
-        this._listenersAdded = true;
+      if (this.listening || !this.isSupported()) {
+        console.log('[AutoPilot AI] voice not started — listening=', this.listening, 'supported=', this.isSupported());
+        return false;
       }
-      const ok = this.injectPageScript(`
-        (function() {
-          if (window.__autopilotRecognition) {
-            try { window.__autopilotRecognition.stop(); } catch(e) {}
-          }
-          const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-          const rec = new SR();
-          rec.continuous = true;
-          rec.interimResults = false;
-          rec.lang = 'en-US';
-          rec.onresult = function(event) {
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-              const transcript = event.results[i][0].transcript.trim().toLowerCase();
-              window.dispatchEvent(new CustomEvent('__autopilotVoiceResult__', { detail: transcript }));
-            }
-          };
-          rec.onerror = function(e) {
-            if (e.error === 'not-allowed' || e.error === 'audio-capture') {
-              window.dispatchEvent(new CustomEvent('__autopilotVoiceError__', { detail: e.error }));
-              return;
-            }
-            if (window.__autopilotVoiceListening) {
-              setTimeout(function() { try { rec.start(); } catch(err) {} }, 800);
-            }
-          };
-          rec.onend = function() {
-            if (window.__autopilotVoiceListening) {
-              setTimeout(function() { try { rec.start(); } catch(err) {} }, 200);
-            }
-          };
-          window.__autopilotRecognition = rec;
-          window.__autopilotVoiceListening = true;
-          rec.start();
-        })();
-      `);
-      if (ok) this.listening = true;
-      return ok;
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      this.recognition = new SR();
+      this.recognition.continuous = true;
+      this.recognition.interimResults = false;
+      this.recognition.lang = 'en-US';
+      this.recognition.onstart = () => {
+        console.log('[AutoPilot AI] voice recognition started');
+        this.listening = true;
+      };
+      this.recognition.onresult = (event) => {
+        console.log('[AutoPilot AI] voice result event:', event.results.length, 'results');
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript.trim().toLowerCase();
+          console.log('[AutoPilot AI] voice transcript:', transcript);
+          this.processCommand(transcript);
+        }
+      };
+      this.recognition.onerror = (e) => {
+        console.error('[AutoPilot AI] voice error:', e.error);
+        if (e.error === 'not-allowed' || e.error === 'audio-capture') {
+          this.listening = false;
+          if (window.__autopilotInstance) window.__autopilotInstance.onVoiceError(e.error);
+          return;
+        }
+        if (this.listening) setTimeout(() => { try { this.recognition.start(); } catch (err) {} }, 800);
+      };
+      this.recognition.onend = () => {
+        console.log('[AutoPilot AI] voice recognition ended, listening=', this.listening);
+        if (this.listening) setTimeout(() => { try { this.recognition.start(); } catch (err) {} }, 200);
+      };
+      try {
+        this.recognition.start();
+        return true;
+      } catch (err) {
+        console.error('[AutoPilot AI] voice start threw:', err);
+        this.listening = false;
+        return false;
+      }
     }
     start() { return this.startFromUserGesture(); }
     stop() {
       this.listening = false;
       if (this.recognition) { try { this.recognition.stop(); } catch (e) {} this.recognition = null; }
-      this.injectPageScript(`
-        (function() {
-          window.__autopilotVoiceListening = false;
-          if (window.__autopilotRecognition) {
-            try { window.__autopilotRecognition.stop(); } catch(e) {}
-            window.__autopilotRecognition = null;
-          }
-        })();
-      `);
     }
     processCommand(transcript) {
-      console.log('[AutoPilot AI] voice heard:', transcript);
+      console.log('[AutoPilot AI] processing voice command:', transcript);
       for (const cmd of this.commands) {
         for (const phrase of cmd.phrases) {
           if (transcript.includes(phrase)) {
@@ -508,9 +441,11 @@
           }
         }
       }
+      console.log('[AutoPilot AI] no voice command matched');
     }
     handleAction(action) {
       const video = document.querySelector('video');
+      console.log('[AutoPilot AI] voice handleAction:', action, 'video found:', !!video);
       if (!video) return;
       switch (action) {
         case 'skip':

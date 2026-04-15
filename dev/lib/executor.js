@@ -16,9 +16,6 @@ export class Executor {
       return { ok: false, reason: 'Element no longer in DOM' };
     }
     try {
-      if (decision.host && decision.host.includes('youtube.com') && decision.category === 'ad-skip') {
-        this.pageScriptClick(decision.selectors || []);
-      }
       this.smartClick(el);
       const action = {
         ruleId: decision.ruleId,
@@ -36,40 +33,6 @@ export class Executor {
     } catch (err) {
       return { ok: false, reason: err.message };
     }
-  }
-
-  pageScriptClick(selectors) {
-    try {
-      const script = document.createElement('script');
-      const ytSelectors = ['.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-skip-ad-button', 'button[class*="ytp-ad-skip"]', 'button[data-testid="skip-ad-button"]', '.ytp-ad-skip-button-slot'];
-      const code = `
-        (function() {
-          const selectors = ${JSON.stringify(ytSelectors)};
-          for (const sel of selectors) {
-            try {
-              const el = document.querySelector(sel);
-              if (el && el.offsetParent !== null && !el.disabled && el.getAttribute('aria-disabled') !== 'true') {
-                el.click();
-                window.__autopilotLastClick = sel;
-                return;
-              }
-            } catch (e) {}
-          }
-        })();
-      `;
-      const blob = new Blob([code], { type: 'text/javascript' });
-      const blobUrl = URL.createObjectURL(blob);
-      if (window.trustedTypes && window.trustedTypes.createPolicy) {
-        const policy = window.trustedTypes.getPolicy?.('autopilot') || window.trustedTypes.createPolicy('autopilot', {
-          createScriptURL: (url) => url,
-        });
-        script.src = policy.createScriptURL(blobUrl);
-      } else {
-        script.src = blobUrl;
-      }
-      script.onload = () => { URL.revokeObjectURL(blobUrl); try { script.remove(); } catch (e) {} };
-      (document.head || document.documentElement).appendChild(script);
-    } catch (e) {}
   }
 
   smartClick(el) {

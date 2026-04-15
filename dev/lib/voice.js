@@ -19,30 +19,10 @@ export class VoiceController {
       { phrases: ['quieter', 'volume down'], action: 'volumeDown' },
       { phrases: ['fullscreen', 'full screen'], action: 'fullscreen' },
     ];
-    this._listenersAdded = false;
   }
 
   isSupported() {
     return typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
-  }
-
-  injectPageScript(code) {
-    try {
-      const script = document.createElement('script');
-      const blob = new Blob([code], { type: 'text/javascript' });
-      const blobUrl = URL.createObjectURL(blob);
-      if (window.trustedTypes && window.trustedTypes.createPolicy) {
-        const policy = window.trustedTypes.getPolicy?.('autopilot') || window.trustedTypes.createPolicy('autopilot', {
-          createScriptURL: (url) => url,
-        });
-        script.src = policy.createScriptURL(blobUrl);
-      } else {
-        script.src = blobUrl;
-      }
-      script.onload = () => { URL.revokeObjectURL(blobUrl); try { script.remove(); } catch (e) {} };
-      (document.head || document.documentElement).appendChild(script);
-      return true;
-    } catch (e) { return false; }
   }
 
   start() {
@@ -51,53 +31,56 @@ export class VoiceController {
       console.warn('[AutoPilot] Web Speech API not supported');
       return false;
     }
-    if (!this._listenersAdded) {
-      window.addEventListener('__autopilotVoiceResult__', (e) => {
-        this.processCommand(e.detail);
-      });
-      window.addEventListener('__autopilotVoiceError__', (e) => {
-        this.listening = false;
-        if (this.handlers.onError) this.handlers.onError(e.detail);
-      });
-      this._listenersAdded = true;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    this.recognition = new SR();
+    this.recognition.continuous = true;
+    this.recognition.interimResults = false;
+    this.recognition.lang = 'en-US';
+
+    this.recognition.onstart = () => {
+      console.log('[AutoPilot AI] voice recognition started');
+      this.listening = true;
+    };
+
+    this.recognition.onresult = (event) => {
+      console.log('[AutoPilot AI] voice result event:', event.results.length, 'results');
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript.trim().toLowerCase();
+        console.log('[AutoPilot AI] voice transcript:', transcript);
+        this.processCommand(transcript);
+      }
+    };
+
+    this.recognition.onerror = (e) => {
+      console.error('[AutoPilot AI] voice error:', e.error);
+      // Auto-restart on temporary errors (network, no-speech)
+      if (this.listening && e.error !== 'not-allowed' && e.error !== 'audio-capture') {
+        setTimeout(() => {
+          try { this.recognition.start(); } catch (err) {}
+        }, 800);
+      }
+      if ((e.error === 'not-allowed' || e.error === 'audio-capture') && this.handlers.onError) {
+        this.handlers.onError(e.error);
+      }
+    };
+
+    this.recognition.onend = () => {
+      console.log('[AutoPilot AI] voice recognition ended, listening=', this.listening);
+      // Auto-restart if we're supposed to be listening
+      if (this.listening) {
+        setTimeout(() => {
+          try { this.recognition.start(); } catch (err) {}
+        }, 200);
+      }
+    };
+
+    try {
+      this.recognition.start();
+      return true;
+    } catch (err) {
+      console.warn('[AutoPilot] Could not start voice recognition:', err);
+      return false;
     }
-    const ok = this.injectPageScript(`
-      (function() {
-        if (window.__autopilotRecognition) {
-          try { window.__autopilotRecognition.stop(); } catch(e) {}
-        }
-        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const rec = new SR();
-        rec.continuous = true;
-        rec.interimResults = false;
-        rec.lang = 'en-US';
-        rec.onresult = function(event) {
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript.trim().toLowerCase();
-            window.dispatchEvent(new CustomEvent('__autopilotVoiceResult__', { detail: transcript }));
-          }
-        };
-        rec.onerror = function(e) {
-          if (e.error === 'not-allowed' || e.error === 'audio-capture') {
-            window.dispatchEvent(new CustomEvent('__autopilotVoiceError__', { detail: e.error }));
-            return;
-          }
-          if (window.__autopilotVoiceListening) {
-            setTimeout(function() { try { rec.start(); } catch(err) {} }, 800);
-          }
-        };
-        rec.onend = function() {
-          if (window.__autopilotVoiceListening) {
-            setTimeout(function() { try { rec.start(); } catch(err) {} }, 200);
-          }
-        };
-        window.__autopilotRecognition = rec;
-        window.__autopilotVoiceListening = true;
-        rec.start();
-      })();
-    `);
-    if (ok) this.listening = true;
-    return ok;
   }
 
   stop() {
@@ -106,19 +89,10 @@ export class VoiceController {
       try { this.recognition.stop(); } catch (e) {}
       this.recognition = null;
     }
-    this.injectPageScript(`
-      (function() {
-        window.__autopilotVoiceListening = false;
-        if (window.__autopilotRecognition) {
-          try { window.__autopilotRecognition.stop(); } catch(e) {}
-          window.__autopilotRecognition = null;
-        }
-      })();
-    `);
   }
 
   processCommand(transcript) {
-    console.log('[AutoPilot AI] voice heard:', transcript);
+    console.log('[AutoPilot AI] processing voice command:', transcript);
     for (const cmd of this.commands) {
       for (const phrase of cmd.phrases) {
         if (transcript.includes(phrase)) {
@@ -128,6 +102,7 @@ export class VoiceController {
         }
       }
     }
+    console.log('[AutoPilot AI] no voice command matched');
   }
 
   handleAction(action, transcript) {
@@ -136,6 +111,7 @@ export class VoiceController {
     }
     // Built-in default media controls
     const video = document.querySelector('video');
+    console.log('[AutoPilot AI] voice handleAction:', action, 'video found:', !!video);
     if (!video) return;
     switch (action) {
       case 'skip':
