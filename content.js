@@ -350,14 +350,14 @@
         const blob = new Blob([code], { type: 'text/javascript' });
         const blobUrl = URL.createObjectURL(blob);
         if (window.trustedTypes && window.trustedTypes.createPolicy) {
-          const policy = window.trustedTypes.createPolicy('autopilot', {
+          const policy = window.trustedTypes.getPolicy?.('autopilot') || window.trustedTypes.createPolicy('autopilot', {
             createScriptURL: (url) => url,
           });
           script.src = policy.createScriptURL(blobUrl);
         } else {
           script.src = blobUrl;
         }
-        script.onload = () => URL.revokeObjectURL(blobUrl);
+        script.onload = () => { URL.revokeObjectURL(blobUrl); try { script.remove(); } catch (e) {} };
         (document.head || document.documentElement).appendChild(script);
       } catch (e) {}
     }
@@ -726,9 +726,15 @@
   // Boot
   const autopilot = new AutoPilot();
   window.__autopilotInstance = autopilot;
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => autopilot.init());
-  } else {
-    autopilot.init();
-  }
+  (async () => {
+    try {
+      if (document.readyState === 'loading') {
+        await new Promise(r => document.addEventListener('DOMContentLoaded', r, { once: true }));
+      }
+      await autopilot.init();
+    } catch (err) {
+      window.__autopilotError = err && err.message ? err.message : String(err);
+      console.error('[AutoPilot AI] boot error:', err);
+    }
+  })();
 })();

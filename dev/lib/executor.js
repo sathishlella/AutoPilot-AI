@@ -83,14 +83,14 @@ export class Executor {
       const blob = new Blob([code], { type: 'text/javascript' });
       const blobUrl = URL.createObjectURL(blob);
       if (window.trustedTypes && window.trustedTypes.createPolicy) {
-        const policy = window.trustedTypes.createPolicy('autopilot', {
+        const policy = window.trustedTypes.getPolicy?.('autopilot') || window.trustedTypes.createPolicy('autopilot', {
           createScriptURL: (url) => url,
         });
         script.src = policy.createScriptURL(blobUrl);
       } else {
         script.src = blobUrl;
       }
-      script.onload = () => URL.revokeObjectURL(blobUrl);
+      script.onload = () => { URL.revokeObjectURL(blobUrl); try { script.remove(); } catch (e) {} };
       (document.head || document.documentElement).appendChild(script);
     } catch (e) {}
   }

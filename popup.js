@@ -123,7 +123,7 @@ async function refresh() {
     // Voice toggle
     document.getElementById('voiceToggle').classList.toggle('on', contentStatus.voiceListening || contentStatus.voiceEnabled);
   } else {
-    document.getElementById('thisSite').textContent = 'n/a';
+    document.getElementById('thisSite').textContent = 'reload page';
     document.getElementById('statusDot').className = 'status-dot off';
   }
 
