@@ -309,26 +309,62 @@
       // Removed: blob URL script injection is blocked by CSP on YouTube
     }
     smartClick(el) {
-      // Try full synthetic pointer + mouse event chain FIRST (YouTube/Netflix ad buttons
-      // often have pointerdown handlers that native .click() doesn't trigger)
+      if (!el || !el.isConnected) return;
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const common = {
+        view: window, bubbles: true, cancelable: true, composed: true,
+        clientX: cx, clientY: cy, screenX: cx, screenY: cy,
+        button: 0, buttons: 1, isPrimary: true, pointerId: 1, pointerType: 'mouse'
+      };
+
+      // Strategy 1: native click (fast path)
+      try { if (typeof el.click === 'function') el.click(); } catch (e) {}
+
+      // Strategy 2: focus + Enter key (many buttons respond to keyboard activation)
       try {
-        const rect = el.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
-        const common = { view: window, bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, buttons: 1 };
+        el.focus();
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+        el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+      } catch (e) {}
+
+      // Strategy 3: full synthetic pointer + mouse chain
+      try {
         if (window.PointerEvent) {
-          el.dispatchEvent(new PointerEvent('pointerover', { ...common, pointerType: 'mouse' }));
-          el.dispatchEvent(new PointerEvent('pointerenter', { ...common, pointerType: 'mouse' }));
-          el.dispatchEvent(new PointerEvent('pointerdown', { ...common, pointerType: 'mouse' }));
+          el.dispatchEvent(new PointerEvent('pointerover', common));
+          el.dispatchEvent(new PointerEvent('pointerenter', common));
+          el.dispatchEvent(new PointerEvent('pointerdown', common));
         }
         el.dispatchEvent(new MouseEvent('mouseover', common));
+        el.dispatchEvent(new MouseEvent('mouseenter', common));
         el.dispatchEvent(new MouseEvent('mousedown', common));
-        if (window.PointerEvent) el.dispatchEvent(new PointerEvent('pointerup', { ...common, pointerType: 'mouse' }));
+        if (window.PointerEvent) el.dispatchEvent(new PointerEvent('pointerup', common));
         el.dispatchEvent(new MouseEvent('mouseup', common));
         el.dispatchEvent(new MouseEvent('click', common));
       } catch (e) {}
-      // Also call native click() as a belt-and-suspenders (covers cases where
-      // synthetic events are blocked by the element's handlers).
-      try { if (typeof el.click === 'function') el.click(); } catch (e) {}
+
+      // Strategy 4: click via elementFromPoint to hit the actual topmost rendered element
+      try {
+        const target = document.elementFromPoint(cx, cy);
+        if (target && target !== el && !el.contains(target) && !target.contains(el)) {
+          target.dispatchEvent(new MouseEvent('mousedown', common));
+          target.dispatchEvent(new MouseEvent('mouseup', common));
+          target.dispatchEvent(new MouseEvent('click', common));
+          try { if (typeof target.click === 'function') target.click(); } catch (e) {}
+        }
+      } catch (e) {}
+
+      // Strategy 5: try clicking the first interactive child (YouTube skip button handler is sometimes on a child span/svg)
+      try {
+        const child = el.querySelector('button, [role="button"], svg, span');
+        if (child && child !== el) {
+          child.dispatchEvent(new MouseEvent('mousedown', common));
+          child.dispatchEvent(new MouseEvent('mouseup', common));
+          child.dispatchEvent(new MouseEvent('click', common));
+          try { if (typeof child.click === 'function') child.click(); } catch (e) {}
+        }
+      } catch (e) {}
     }
     estimateTimeSaved(category) {
       const map = { 'ad-skip': 5, 'skip-intro': 30, 'next-episode': 8, 'continue-watching': 6, 'autoplay': 4, 'consent': 8, 'popup': 6, 'newsletter-popup': 6, 'paywall': 7, 'age-gate': 5, 'app-banner': 5, 'unmute': 4 };
@@ -507,8 +543,34 @@
         }
         const now = Date.now();
         if (this._lastAdSkipAt && (now - this._lastAdSkipAt) < 3000) return;
+
+        // Strategy 1: click the skip button if it is visible
+        const skipSelectors = ['.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-skip-ad-button', '.ytp-ad-skip-button-container button', '.ytp-skip-button'];
+        let skipBtn = null;
+        for (const sel of skipSelectors) {
+          try {
+            const btn = document.querySelector(sel);
+            if (btn && btn.offsetParent !== null) {
+              skipBtn = btn;
+              break;
+            }
+          } catch (e) {}
+        }
+        if (skipBtn) {
+          try {
+            this.executor.smartClick(skipBtn);
+            this._lastAdSkipAt = now;
+            this.executor.showToast({ label: 'YouTube: Skipped ad', category: 'ad-skip' });
+            this.handleAction({ ruleId: 'yt-skip-ad', category: 'ad-skip', label: 'YouTube: Skipped ad', host: this.scout.host, url: window.location.href, clickedAt: now, timeSavedSec: 5 });
+            console.log('[AutoPilot AI] ad skipper: clicked skip button');
+          } catch (err) {
+            console.error('[AutoPilot AI] ad skipper click error:', err);
+          }
+          return;
+        }
+
+        // Strategy 2: fast-forward the ad video when no skip button exists
         const video = document.querySelector('video');
-        // Only skip if this looks like an ad (duration < 3 min) and we're not already near the end
         const looksLikeAd = video && !isNaN(video.duration) && isFinite(video.duration) && video.duration > 0 && video.duration < 180;
         if (looksLikeAd && video.currentTime < video.duration - 2) {
           try {
@@ -521,7 +583,7 @@
             }
             this._lastAdSkipAt = now;
             this.executor.showToast({ label: 'YouTube: Skipped ad', category: 'ad-skip' });
-            this.handleAction({ ruleId: 'yt-skip-ad', category: 'ad-skip', label: 'YouTube: Skipped ad', host: this.scout.host, url: window.location.href, clickedAt: now, timeSavedSec: 5 });
+            this.handleAction({ ruleId: 'yt-skip-ad-fastforward', category: 'ad-skip', label: 'YouTube: Skipped ad', host: this.scout.host, url: window.location.href, clickedAt: now, timeSavedSec: 5 });
           } catch (err) {
             console.error('[AutoPilot AI] ad skipper error:', err);
           }

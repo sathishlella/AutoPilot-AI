@@ -36,25 +36,62 @@ export class Executor {
   }
 
   smartClick(el) {
-    // Strategy 1: native click
-    if (typeof el.click === 'function') {
-      el.click();
-      return;
-    }
-    // Strategy 2: dispatch synthetic mouse event
+    if (!el || !el.isConnected) return;
     const rect = el.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    const events = ['mousedown', 'mouseup', 'click'];
-    for (const type of events) {
-      el.dispatchEvent(new MouseEvent(type, {
-        view: window,
-        bubbles: true,
-        cancelable: true,
-        clientX: cx,
-        clientY: cy,
-      }));
-    }
+    const common = {
+      view: window, bubbles: true, cancelable: true, composed: true,
+      clientX: cx, clientY: cy, screenX: cx, screenY: cy,
+      button: 0, buttons: 1, isPrimary: true, pointerId: 1, pointerType: 'mouse'
+    };
+
+    // Strategy 1: native click (fast path)
+    try { if (typeof el.click === 'function') el.click(); } catch (e) {}
+
+    // Strategy 2: focus + Enter key (many buttons respond to keyboard activation)
+    try {
+      el.focus();
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+      el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+    } catch (e) {}
+
+    // Strategy 3: full synthetic pointer + mouse chain
+    try {
+      if (window.PointerEvent) {
+        el.dispatchEvent(new PointerEvent('pointerover', common));
+        el.dispatchEvent(new PointerEvent('pointerenter', common));
+        el.dispatchEvent(new PointerEvent('pointerdown', common));
+      }
+      el.dispatchEvent(new MouseEvent('mouseover', common));
+      el.dispatchEvent(new MouseEvent('mouseenter', common));
+      el.dispatchEvent(new MouseEvent('mousedown', common));
+      if (window.PointerEvent) el.dispatchEvent(new PointerEvent('pointerup', common));
+      el.dispatchEvent(new MouseEvent('mouseup', common));
+      el.dispatchEvent(new MouseEvent('click', common));
+    } catch (e) {}
+
+    // Strategy 4: click via elementFromPoint to hit the actual topmost rendered element
+    try {
+      const target = document.elementFromPoint(cx, cy);
+      if (target && target !== el && !el.contains(target) && !target.contains(el)) {
+        target.dispatchEvent(new MouseEvent('mousedown', common));
+        target.dispatchEvent(new MouseEvent('mouseup', common));
+        target.dispatchEvent(new MouseEvent('click', common));
+        try { if (typeof target.click === 'function') target.click(); } catch (e) {}
+      }
+    } catch (e) {}
+
+    // Strategy 5: try clicking the first interactive child (YouTube skip button handler is sometimes on a child span/svg)
+    try {
+      const child = el.querySelector('button, [role="button"], svg, span');
+      if (child && child !== el) {
+        child.dispatchEvent(new MouseEvent('mousedown', common));
+        child.dispatchEvent(new MouseEvent('mouseup', common));
+        child.dispatchEvent(new MouseEvent('click', common));
+        try { if (typeof child.click === 'function') child.click(); } catch (e) {}
+      }
+    } catch (e) {}
   }
 
   estimateTimeSaved(category) {
