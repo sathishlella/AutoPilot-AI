@@ -551,21 +551,19 @@
       console.log('[AutoPilot AI] YouTube ad skipper armed');
       this.ytAdInterval = setInterval(() => {
         const player = document.querySelector('#movie_player');
-        const isAdShowing = player && (player.classList.contains('ad-showing') || !!player.querySelector('.ad-showing'));
-        const hasAdModule = !!document.querySelector('.ytp-ad-module, .ytp-ad-player-overlay');
-        if (!isAdShowing && !hasAdModule) {
+        const isAdShowing = player && player.classList.contains('ad-showing');
+        if (!isAdShowing) {
           this._lastAdSkipAt = 0;
           return;
         }
         const now = Date.now();
         if (this._lastAdSkipAt && (now - this._lastAdSkipAt) < 3000) return;
         const video = document.querySelector('video');
-        if (video && !isNaN(video.duration) && isFinite(video.duration) && video.duration > 0) {
+        if (video && !isNaN(video.duration) && isFinite(video.duration) && video.duration > 0 && video.currentTime < video.duration - 2) {
           try {
             const before = video.currentTime;
             video.currentTime = video.duration - 0.1;
             console.log('[AutoPilot AI] ad skipper: seek attempted', before, '->', video.currentTime);
-            // Fallback: if seek didn't move (YouTube blocked it), speed up the ad
             if (Math.abs(video.currentTime - before) < 0.5) {
               video.playbackRate = 16;
               console.log('[AutoPilot AI] ad skipper: seek blocked, using 16x speed');
@@ -577,7 +575,7 @@
             console.error('[AutoPilot AI] ad skipper error:', err);
           }
         }
-      }, 500);
+      }, 800);
     }
     stopYouTubeAdSkipper() {
       if (this.ytAdInterval) clearInterval(this.ytAdInterval);
